@@ -6,7 +6,9 @@ use warp::{Filter, Rejection};
 
 type DBCon = Connection<PgConnectionManager<NoTls>>;
 type DBPool = Pool<PgConnectionManager<NoTls>>;
+type Result<T> = std::result::Result<T, Rejection>;
 
+mod data;
 mod db;
 mod error;
 mod handler;
@@ -26,6 +28,33 @@ async fn main() {
     let health_route = warp::path!("health")
         .and(with_db(db_pool.clone()))
         .and_then(handler::health_handler);
-    let routes = health_route.with(warp::cors().allow_any_origin());
+
+    let todo = warp::path("todo");
+    let todo_routes = todo
+        .and(warp::get())
+        .and(warp::query())
+        .and(with_db(db_pool.clone()))
+        .and_then(handler::create_todo_handler)
+        .or(todo
+            .and(warp::post())
+            .and(warp::body::json())
+            .and(with_db(db_pool.clone()))
+            .and_then(handler::create_todo_handler))
+        .or(todo
+            .and(warp::put())
+            .and(warp::path::param())
+            .and(warp::body::json())
+            .and(with_db(db_pool.clone()))
+            .and_then(handler::update_todo_handler))
+        .or(todo
+            .and(warp::delete())
+            .and(warp::path::param())
+            .and(with_db(db_pool.clone()))
+            .and_then(handler::delete_todo_handler));
+
+    let routes = health_route
+        .or(todo_routes)
+        .with(warp::cors().allow_any_origin())
+        .recover(error::handle_rejection);
     warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
 }
